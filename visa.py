@@ -176,12 +176,14 @@ driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
 
 if __name__ == "__main__":
     first_loop = True
+    Req_count = 0
     while 1:
         LOG_FILE_NAME = "log_" + str(datetime.now().date()) + ".txt"
         if first_loop:
+            driver.get(SIGN_OUT_LINK)
+            driver.stop_client()
             t0 = time.time()
             total_time = 0
-            Req_count = 0
             start_process()
             first_loop = False
         Req_count += 1
@@ -210,7 +212,8 @@ if __name__ == "__main__":
                 date = get_available_date(dates)
                 if date:
                     # A good date to schedule for
-                    END_MSG_TITLE, msg = date
+                    END_MSG_TITLE = "A good date to schedule: " + date
+                    msg = date
                     break
                 RETRY_WAIT_TIME = RETRY_TIME_L_BOUND
                 t1 = time.time()
@@ -229,6 +232,7 @@ if __name__ == "__main__":
                     print(msg)
                     info_logger(LOG_FILE_NAME, msg)
                     time.sleep(RETRY_WAIT_TIME)
+                    first_loop = True
         except:
             # Exception Occured
             msg = f"Break the loop after exception!\n"
@@ -237,7 +241,10 @@ if __name__ == "__main__":
 
 print(msg)
 info_logger(LOG_FILE_NAME, msg)
-send_notification(END_MSG_TITLE, msg)
+if(END_MSG_TITLE != 'EXCEPTION'):
+    send_notification(END_MSG_TITLE, msg)
+else:
+    print("******* ", END_MSG_TITLE, msg)
 driver.get(SIGN_OUT_LINK)
 driver.stop_client()
 driver.quit()
