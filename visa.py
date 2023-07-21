@@ -17,6 +17,8 @@ from sendgrid.helpers.mail import Mail
 
 from embassy import *
 
+from twilio.rest import Client
+
 config = configparser.ConfigParser()
 config.read('config.ini')
 
@@ -36,17 +38,6 @@ EMBASSY = Embassies[YOUR_EMBASSY][0]
 FACILITY_ID = Embassies[YOUR_EMBASSY][1]
 REGEX_CONTINUE = Embassies[YOUR_EMBASSY][2]
 
-# Notification:
-# Get email notifications via https://sendgrid.com/ (Optional)
-SENDGRID_API_KEY = config['NOTIFICATION']['SENDGRID_API_KEY']
-# Get push notifications via https://pushover.net/ (Optional)
-PUSHOVER_TOKEN = config['NOTIFICATION']['PUSHOVER_TOKEN']
-PUSHOVER_USER = config['NOTIFICATION']['PUSHOVER_USER']
-# Get push notifications via PERSONAL WEBSITE http://yoursite.com (Optional)
-PERSONAL_SITE_USER = config['NOTIFICATION']['PERSONAL_SITE_USER']
-PERSONAL_SITE_PASS = config['NOTIFICATION']['PERSONAL_SITE_PASS']
-PUSH_TARGET_EMAIL = config['NOTIFICATION']['PUSH_TARGET_EMAIL']
-PERSONAL_PUSHER_URL = config['NOTIFICATION']['PERSONAL_PUSHER_URL']
 
 # Time Section:
 minute = 60
@@ -55,18 +46,11 @@ hour = 60 * minute
 STEP_TIME = 0.5
 # Time between retries/checks for available dates (seconds)
 RETRY_TIME_L_BOUND = config['TIME'].getfloat('RETRY_TIME_L_BOUND')
-RETRY_TIME_U_BOUND = config['TIME'].getfloat('RETRY_TIME_U_BOUND')
 # Cooling down after WORK_LIMIT_TIME hours of work (Avoiding Ban)
 WORK_LIMIT_TIME = config['TIME'].getfloat('WORK_LIMIT_TIME')
 WORK_COOLDOWN_TIME = config['TIME'].getfloat('WORK_COOLDOWN_TIME')
 # Temporary Banned (empty list): wait COOLDOWN_TIME hours
 BAN_COOLDOWN_TIME = config['TIME'].getfloat('BAN_COOLDOWN_TIME')
-
-# CHROMEDRIVER
-# Details for the script to control Chrome
-LOCAL_USE = config['CHROMEDRIVER'].getboolean('LOCAL_USE')
-# Optional: HUB_ADDRESS is mandatory only when LOCAL_USE = False
-HUB_ADDRESS = config['CHROMEDRIVER']['HUB_ADDRESS']
 
 SIGN_IN_LINK = f"https://ais.usvisa-info.com/{EMBASSY}/niv/users/sign_in"
 APPOINTMENT_URL = f"https://ais.usvisa-info.com/{EMBASSY}/niv/schedule/{SCHEDULE_ID}/appointment"
@@ -74,44 +58,29 @@ DATE_URL = f"https://ais.usvisa-info.com/{EMBASSY}/niv/schedule/{SCHEDULE_ID}/ap
 TIME_URL = f"https://ais.usvisa-info.com/{EMBASSY}/niv/schedule/{SCHEDULE_ID}/appointment/times/{FACILITY_ID}.json?date=%s&appointments[expedite]=false"
 SIGN_OUT_LINK = f"https://ais.usvisa-info.com/{EMBASSY}/niv/users/sign_out"
 
-JS_SCRIPT = ("var req = new XMLHttpRequest();"
-             f"req.open('GET', '%s', false);"
-             "req.setRequestHeader('Accept', 'application/json, text/javascript, */*; q=0.01');"
-             "req.setRequestHeader('X-Requested-With', 'XMLHttpRequest');"
-             f"req.setRequestHeader('Cookie', '_yatri_session=%s');"
-             "req.send(null);"
-             "return req.responseText;")
+
+account_sid = config['TWILIO_CONFIG']['ACCOUNT_SID']
+auth_token = config['TWILIO_CONFIG']['AUTH_TOKEN']
+
+client = Client(account_sid, auth_token)
+
+JS_SCRIPT = (
+    "var req = new XMLHttpRequest();"
+    f"req.open('GET', '%s', false);"
+    "req.setRequestHeader('Accept', 'application/json, text/javascript, */*; q=0.01');"
+    "req.setRequestHeader('X-Requested-With', 'XMLHttpRequest');"
+    f"req.setRequestHeader('Cookie', '_yatri_session=%s');"
+    "req.send(null);"
+    "return req.responseText;"
+)
 
 def send_notification(title, msg):
-    print(f"Sending notification!")
-    if SENDGRID_API_KEY:
-        message = Mail(from_email=USERNAME, to_emails=USERNAME, subject=msg, html_content=msg)
-        try:
-            sg = SendGridAPIClient(SENDGRID_API_KEY)
-            response = sg.send(message)
-            print(response.status_code)
-            print(response.body)
-            print(response.headers)
-        except Exception as e:
-            print(e.message)
-    if PUSHOVER_TOKEN:
-        url = "https://api.pushover.net/1/messages.json"
-        data = {
-            "token": PUSHOVER_TOKEN,
-            "user": PUSHOVER_USER,
-            "message": msg
-        }
-        requests.post(url, data)
-    if PERSONAL_SITE_USER:
-        url = PERSONAL_PUSHER_URL
-        data = {
-            "title": "VISA - " + str(title),
-            "user": PERSONAL_SITE_USER,
-            "pass": PERSONAL_SITE_PASS,
-            "email": PUSH_TARGET_EMAIL,
-            "msg": msg,
-        }
-        requests.post(url, data)
+    message = client.messages.create(
+        body=title + " - " + msg,
+        from_=config['TWILIO_CONFIG']['PHONE_NUMBER_FROM'],
+        to=config['TWILIO_CONFIG']['PHONE_NUMBER_TO']
+    )
+    print(message.sid)
 
 
 def auto_action(label, find_by, el_type, action, value, sleep_time=0):
@@ -153,33 +122,6 @@ def start_process():
     auto_action("Enter Panel", "name", "commit", "click", "", STEP_TIME)
     Wait(driver, 60).until(EC.presence_of_element_located((By.XPATH, "//a[contains(text(), '" + REGEX_CONTINUE + "')]")))
     print("\n\tlogin successful!\n")
-
-def reschedule(date):
-    time = get_time(date)
-    driver.get(APPOINTMENT_URL)
-    headers = {
-        "User-Agent": driver.execute_script("return navigator.userAgent;"),
-        "Referer": APPOINTMENT_URL,
-        "Cookie": "_yatri_session=" + driver.get_cookie("_yatri_session")["value"]
-    }
-    data = {
-        "utf8": driver.find_element(by=By.NAME, value='utf8').get_attribute('value'),
-        "authenticity_token": driver.find_element(by=By.NAME, value='authenticity_token').get_attribute('value'),
-        "confirmed_limit_message": driver.find_element(by=By.NAME, value='confirmed_limit_message').get_attribute('value'),
-        "use_consulate_appointment_capacity": driver.find_element(by=By.NAME, value='use_consulate_appointment_capacity').get_attribute('value'),
-        "appointments[consulate_appointment][facility_id]": FACILITY_ID,
-        "appointments[consulate_appointment][date]": date,
-        "appointments[consulate_appointment][time]": time,
-    }
-    r = requests.post(APPOINTMENT_URL, headers=headers, data=data)
-    if(r.text.find('Successfully Scheduled') != -1):
-        title = "SUCCESS"
-        msg = f"Rescheduled Successfully! {date} {time}"
-    else:
-        title = "FAIL"
-        msg = f"Reschedule Failed!!! {date} {time}"
-    return [title, msg]
-
 
 def get_date():
     # Requesting to get the whole available dates
@@ -229,10 +171,7 @@ def info_logger(file_path, log):
         file.write(str(datetime.now().time()) + ":\n" + log + "\n")
 
 
-if LOCAL_USE:
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
-else:
-    driver = webdriver.Remote(command_executor=HUB_ADDRESS, options=webdriver.ChromeOptions())
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
 
 
 if __name__ == "__main__":
@@ -256,7 +195,7 @@ if __name__ == "__main__":
                 msg = f"List is empty, Probabely banned!\n\tSleep for {BAN_COOLDOWN_TIME} hours!\n"
                 print(msg)
                 info_logger(LOG_FILE_NAME, msg)
-                send_notification("BAN", msg)
+                print("BAN", msg)
                 driver.get(SIGN_OUT_LINK)
                 time.sleep(BAN_COOLDOWN_TIME * hour)
                 first_loop = True
@@ -271,9 +210,9 @@ if __name__ == "__main__":
                 date = get_available_date(dates)
                 if date:
                     # A good date to schedule for
-                    END_MSG_TITLE, msg = reschedule(date)
+                    END_MSG_TITLE, msg = date
                     break
-                RETRY_WAIT_TIME = random.randint(RETRY_TIME_L_BOUND, RETRY_TIME_U_BOUND)
+                RETRY_WAIT_TIME = RETRY_TIME_L_BOUND
                 t1 = time.time()
                 total_time = t1 - t0
                 msg = "\nWorking Time:  ~ {:.2f} minutes".format(total_time/minute)
@@ -281,7 +220,7 @@ if __name__ == "__main__":
                 info_logger(LOG_FILE_NAME, msg)
                 if total_time > WORK_LIMIT_TIME * hour:
                     # Let program rest a little
-                    send_notification("REST", f"Break-time after {WORK_LIMIT_TIME} hours | Repeated {Req_count} times")
+                    print("REST", f"Break-time after {WORK_LIMIT_TIME} hours | Repeated {Req_count} times")
                     driver.get(SIGN_OUT_LINK)
                     time.sleep(WORK_COOLDOWN_TIME * hour)
                     first_loop = True
