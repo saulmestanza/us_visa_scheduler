@@ -38,6 +38,9 @@ EMBASSY = Embassies[YOUR_EMBASSY][0]
 FACILITY_ID = Embassies[YOUR_EMBASSY][1]
 REGEX_CONTINUE = Embassies[YOUR_EMBASSY][2]
 
+PUSHOVER_TOKEN = config['PUSHOVER']['PUSHOVER_TOKEN']
+PUSHOVER_USER = config['PUSHOVER']['PUSHOVER_USER']
+
 
 # Time Section:
 minute = 60
@@ -74,13 +77,24 @@ JS_SCRIPT = (
     "return req.responseText;"
 )
 
-def send_notification(title, msg):
+def send_sms(title, msg):
     message = client.messages.create(
         body=title + " - " + msg,
         from_=config['TWILIO_CONFIG']['PHONE_NUMBER_FROM'],
         to=config['TWILIO_CONFIG']['PHONE_NUMBER_TO']
     )
     print(message.sid)
+
+
+def send_notification(title, msg):
+    url = "https://api.pushover.net/1/messages.json"
+    data = {
+        "token": PUSHOVER_TOKEN,
+        "user": PUSHOVER_USER,
+        "message": msg,
+        "title": title
+    }
+    requests.post(url, data)
 
 
 def auto_action(label, find_by, el_type, action, value, sleep_time=0):
@@ -206,6 +220,7 @@ if __name__ == "__main__":
                 msg = ""
                 for d in dates:
                     msg = msg + "%s" % (d.get('date')) + ", "
+                send_notification("#{}: Available dates".format(Req_count), msg)
                 msg = "Available dates:\n"+ msg
                 print(msg)
                 info_logger(LOG_FILE_NAME, msg)
@@ -213,6 +228,7 @@ if __name__ == "__main__":
                 if date:
                     # A good date to schedule for
                     END_MSG_TITLE = "A good date to schedule: " + date
+                    send_notification("A good date to schedule", date)
                     msg = date
                     break
                 RETRY_WAIT_TIME = RETRY_TIME_L_BOUND
@@ -242,9 +258,8 @@ if __name__ == "__main__":
 print(msg)
 info_logger(LOG_FILE_NAME, msg)
 if(END_MSG_TITLE != 'EXCEPTION'):
-    send_notification(END_MSG_TITLE, msg)
-else:
-    print("******* ", END_MSG_TITLE, msg)
+    send_sms(END_MSG_TITLE, msg)
+send_notification(END_MSG_TITLE, msg)
 driver.get(SIGN_OUT_LINK)
 driver.stop_client()
 driver.quit()
